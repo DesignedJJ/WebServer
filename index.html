@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pi5 Web-Server Network Plan</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Hosting a Web Server</h1>
+    <p>Scope: Hosting a secure Apache web server on Raspberry Pi 5 running Ubuntu</p>
+  </header>
+
+  <main>
+    <section id="goals">
+      <h2>Goals &amp; Requirements</h2>
+      <ul>
+        <li>Host a website over the Internet</li>
+        <li>Serve HTTP (port 80) and HTTPS (port 443) traffic</li>
+        <li>Apache 2.4, PHP/Node.js support as needed</li>
+        <li>TLS via Let’s Encrypt, auto-renewal</li>
+        <li>Static internal IP, router port-forwarding</li>
+        <li>UFW firewall hardened</li>
+        <li>Dynamic DNS (if no static ISP IP)</li>
+        <li>Monitoring + regular backups</li>
+      </ul>
+    </section>
+
+    <!-- Step 2: Network Topology -->
+    <section id="topology">
+      <h2>Network Topology</h2>
+      <p>Below is the logical flow of traffic from the Internet to the Pi5 web server:</p>
+      <img src="images/topology2.webp" alt="Network Topology Diagram" />
+    </section>
+
+    <!-- Step 4: Hardware Inventory -->
+    <section id="hardware">
+      <h2>Hardware Inventory</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Device</th>
+            <th>Role</th>
+            <th>IP (static)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Raspberry Pi 5</td>
+            <td>Web server</td>
+            <td>192.168.1.50</td>
+          </tr>
+          <tr>
+            <td>Router</td>
+            <td>DHCP, NAT, firewall</td>
+            <td>192.168.1.1</td>
+          </tr>
+          <tr>
+            <td>Portable Charging Station</td>
+            <td>Mobile power backup</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td>Samsung NVMe 1 TB</td>
+            <td>Cloud storage</td>
+            <td>—</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Steps 7–13: Collapsible Details -->
+    <section id="details">
+      <!-- Step 7: Firewall & UFW Rules -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">Firewall &amp; UFW Rules</h2>
+        <div class="content">
+          <p>Ensure the Pi’s firewall only allows necessary traffic:</p>
+          <pre><code>
+sudo apt install ufw -y
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow OpenSSH
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+          </code></pre>
+          <p>Verify status:</p>
+          <pre><code>sudo ufw status verbose</code></pre>
+          <p>With these rules, SSH (port 22), HTTP (port 80), and HTTPS (port 443) are permitted; all other inbound traffic is blocked.</p>
+        </div>
+      </div>
+
+      <!-- Step 8: DNS & Dynamic DNS -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">DNS &amp; Dynamic DNS</h2>
+        <div class="content">
+          <p><strong>On a domain registrar’s DNS management page:</strong></p>
+
+          <ol>
+            <li>
+              <strong>Access the DNS management panel.</strong><br>
+              This is typically labeled as <em>“DNS Settings,” “Advanced DNS,” “Manage DNS,”</em> or a similar term.
+            </li>
+          
+            <li>
+              <strong>The root domain (@) is assigned an A Record</strong><br>
+              The record points to the server’s public IPv4 address.<br><br>
+          
+              Example:<br>
+              <pre><code>
+          Type: A
+          Host: @
+          Value: PUBLIC.IP.ADDRESS
+          TTL: 300
+              </code></pre>
+            </li>
+          
+            <li>
+              <strong>The “www” hostname is mapped to the same destination</strong><br>
+              This may be done with a second A record:
+              <pre><code>
+          Type: A
+          Host: www
+          Value: PUBLIC.IP.ADDRESS
+          TTL: 300
+              </code></pre>
+            </li>
+          
+            <li>
+              <strong>Alternative configuration for “www” using a CNAME:</strong><br>
+              <pre><code>
+          Type: CNAME
+          Host: www
+          Value: @
+          TTL: 300
+              </code></pre>
+              With this configuration, “www” inherits the resolution of the root domain.
+            </li>
+          
+            <li>
+              <strong>DNS records are saved to apply changes.</strong><br>
+              Propagation distributes the updated entries across DNS resolvers.
+            </li>
+          </ol>
+          
+          <p><strong>DNS resolution can be verified:</strong></p>
+          
+          <pre><code>
+          nslookup example.com
+          nslookup www.example.com
+          </code></pre>
+          
+          <p>Both hostnames should resolve to the same public IP address once propagation has completed.</p>
+          
+        </div>
+      </div>
+
+      <!-- Step 9: TLS via Let’s Encrypt -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">TLS via Let’s Encrypt</h2>
+        <div class="content">
+          <p>1. Install Certbot and the Apache plugin:</p>
+          <pre><code>
+sudo apt update
+sudo apt install certbot python3-certbot-apache -y
+          </code></pre>
+          <p>2. Obtain and install a certificate:</p>
+          <pre><code>
+sudo certbot --apache -d example.com -d www.example.com
+          </code></pre>
+          <p>Follow prompts to confirm email, agree to TOS, and choose to redirect HTTP to HTTPS. Certbot will modify your Apache config automatically.</p>
+          <p>3. Verify auto-renewal:</p>
+          <pre><code>sudo systemctl status certbot.timer</code></pre>
+          <p>If active, certificates will auto-renew before expiry.</p>
+        </div>
+      </div>
+
+      <!-- Step 10: Apache Configuration -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">Apache Configuration</h2>
+        <div class="content">
+          <p>1. <strong>Install Apache</strong> (if not already):
+            <pre><code>sudo apt install apache2 -y</code></pre>
+          </p>
+          <p>2. <strong>Enable Modules</strong>:
+            <pre><code>
+sudo a2enmod ssl
+sudo a2enmod headers
+sudo a2enmod rewrite
+            </code></pre>
+          </p>
+          <p>3. <strong>Set up VirtualHosts</strong> in <code>/etc/apache2/sites-available/example.com.conf</code>:</p>
+          <pre><code>
+&lt;VirtualHost *:80&gt;
+    ServerName example.com
+    ServerAlias www.example.com
+    DocumentRoot /var/www/example.com
+    # Redirect all HTTP to HTTPS
+    RewriteEngine On
+    RewriteCond %{HTTPS} off
+    RewriteRule ^/?(.*) https://%{SERVER_NAME}/$1 [R=301,L]
+&lt;/VirtualHost&gt;
+
+&lt;VirtualHost *:443&gt;
+    ServerName example.com
+    ServerAlias www.example.com
+    DocumentRoot /var/www/example.com
+
+    SSLEngine On
+    SSLCertificateFile /etc/letsencrypt/live/example.com/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/example.com/privkey.pem
+
+    <Directory /var/www/example.com>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+&lt;/VirtualHost&gt;
+          </code></pre>
+          <p>4. <strong>Enable Site & Restart</strong>:
+            <pre><code>
+sudo a2ensite example.com.conf
+sudo systemctl reload apache2
+            </code></pre>
+          <p>Your site folder (<code>/var/www/example.com</code>) should contain an <code>index.html</code> or your application’s files.</p>
+        </div>
+      </div>
+
+      <!-- Step 11: Security Hardening -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">Security Hardening</h2>
+        <div class="content">
+          <p>1. Keep packages up to date:
+            <pre><code>sudo apt update && sudo apt upgrade -y</code></pre>
+          </p>
+          <p>2. <strong>Disable Unused Services</strong> (example: Bluetooth):
+            <pre><code>sudo systemctl disable bluetooth</code></pre>
+          </p>
+          <p>3. <strong>Harden SSH</strong> by editing <code>/etc/ssh/sshd_config</code>:
+            <ul>
+              <li>Change default port (e.g., <code>Port 2222</code>).</li>
+              <li>Disable root login: <code>PermitRootLogin no</code>.</li>
+              <li>Use key-based auth: <code>PasswordAuthentication no</code>.</li>
+            </ul>
+            <pre><code>sudo systemctl reload sshd</code></pre>
+          </p>
+          <p>4. <strong>Install Fail2Ban</strong> to guard against brute-force:
+            <pre><code>
+sudo apt install fail2ban -y
+sudo systemctl enable --now fail2ban
+            </code></pre>
+          <p>Check logs in <code>/var/log/fail2ban.log</code>.</p>
+        </div>
+      </div>
+
+      <!-- Step 12: Monitoring & Logging -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">Monitoring &amp; Logging</h2>
+        <div class="content">
+          <p>1. <strong>Apache Logs</strong> are in <code>/var/log/apache2/</code>:</p>
+          <ul>
+            <li><code>access.log</code></li>
+            <li><code>error.log</code></li>
+          </ul>
+          <p>2. <strong>Install Netdata</strong> for real-time metrics:</p>
+          <pre><code>
+bash <(curl -Ss https://my-netdata.io/kickstart.sh)
+          </code></pre>
+          <p>Access Netdata UI at <code>http://192.168.1.50:19999</code>. It provides CPU, memory, disk, network graphs, etc.</p>
+          <p>3. <strong>Optional:</strong> Install Prometheus Node Exporter for Prometheus-based monitoring:</p>
+          <pre><code>
+sudo apt install prometheus-node-exporter -y
+sudo systemctl enable --now prometheus-node-exporter
+          </code></pre>
+          <p>Then configure your Prometheus server to scrape <code>http://192.168.1.50:9100/metrics</code>.</p>
+        </div>
+      </div>
+
+      <!-- Step 13: Backup & Recovery -->
+      <div class="collapsible-section">
+        <h2 class="collapsible">Backup &amp; Recovery</h2>
+        <div class="content">
+          <p>1. <strong>Daily Website Backup</strong> with <code>rsync</code> to NAS or cloud:</p>
+          <pre><code>
+# Example cron job (runs at 3 AM daily):
+0 3 * * * rsync -a --delete /var/www/example.com /mnt/cloud-storage/www-backup
+          </code></pre>
+          <p>2. <strong>Database Dump</strong> (if using MySQL/MariaDB):</p>
+          <pre><code>
+# Weekly dump on Sunday 4 AM
+0 4 * * 0 mysqldump -u root -p[YOURPASSWORD] your_database | gzip &gt; /mnt/cloud-storage/db-backup-$(date +\%F).sql.gz
+          </code></pre>
+          <p>3. <strong>Verify Backups</strong> by periodically restoring to a test folder:</p>
+          <pre><code>
+rsync -a /mnt/cloud-storage/www-backup /var/www/test-restore
+gunzip < /mnt/cloud-storage/db-backup-YYYY-MM-DD.sql.gz | mysql -u root -p[YOURPASSWORD] test_database
+          </code></pre>
+          <p>4. <strong>Off-site Archive</strong>: Sync critical backups to an off-site server or cloud object storage (e.g., AWS S3, Google Drive).</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    &copy; 2025 Pi5 Network Plan · All rights reserved
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
