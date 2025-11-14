@@ -79,6 +79,7 @@ section ul {
   height: auto;
   border: 2px solid var(--accent-color);
   border-radius: 6px;
+  background-color: dimgray;
 }
 
 /* HARDWARE TABLE */
